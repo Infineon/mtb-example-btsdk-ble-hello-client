@@ -1,10 +1,10 @@
 /*
- * Copyright 2016-2020, Cypress Semiconductor Corporation or a subsidiary of
- * Cypress Semiconductor Corporation. All Rights Reserved.
+ * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
- * materials ("Software"), is owned by Cypress Semiconductor Corporation
- * or one of its subsidiaries ("Cypress") and is protected by and subject to
+ * materials ("Software") is owned by Cypress Semiconductor Corporation
+ * or one of its affiliates ("Cypress") and is protected by and subject to
  * worldwide patent protection (United States and foreign),
  * United States copyright laws and international treaty provisions.
  * Therefore, you may use this Software only as provided in the license
@@ -13,7 +13,7 @@
  * If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
  * non-transferable license to copy, modify, and compile the Software
  * source code solely for use in connection with Cypress's
- * integrated circuit products. Any reproduction, modification, translation,
+ * integrated circuit products.  Any reproduction, modification, translation,
  * compilation, or representation of this Software except as specified
  * above is prohibited without the express written permission of Cypress.
  *
@@ -88,6 +88,9 @@
 #include "wiced_memory.h"
 #include "wiced_hal_puart.h"
 #include "wiced_timer.h"
+#if !defined(CYW20706A2) && !defined(CYW43012C0)
+#include "cycfg_pins.h"
+#endif
 
 /******************************************************************************
  *                                Constants
@@ -1035,7 +1038,11 @@ void hello_client_interrupt_handler(void* user_data, uint8_t value )
     //WICED_BT_TRACE( "But1 %d, But2 %d, But3 %d \n", value & 0x01, ( value & 0x02 ) >> 1, ( value & 0x04 ) >> 2 );
     WICED_BT_TRACE( "hello_client_interrupt_handler, app timer :%d\n", g_hello_client.app_timer_count );
 
+#if ( defined(CYW20719B1) || defined(CYW20721B1) || defined(CYW20735B1) || defined(CYW20819A1) || defined(CYW20721B2) || defined(CYW20719B2) )
+    if ( wiced_hal_gpio_get_pin_input_status(WICED_GET_PIN_FOR_BUTTON(WICED_PLATFORM_BUTTON_1)) == wiced_platform_get_button_pressed_value(WICED_PLATFORM_BUTTON_1) )
+#else
     if ( wiced_hal_gpio_get_pin_input_status(HELLO_CLIENT_GPIO_BUTTON) == HELLO_CLIENT_BUTTON_PRESSED_VALUE )
+#endif
     {
         WICED_BT_TRACE( " Button pressed\n" );
         button_pushed_time = g_hello_client.app_timer_count;
