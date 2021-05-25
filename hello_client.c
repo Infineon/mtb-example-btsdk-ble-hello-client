@@ -40,18 +40,18 @@
 * Hello Sensor Device's.  Because handles of the all attributes of
 * the Hello Sensor are well known, Hello Client does not perform GATT
 * discovery, but uses them directly.  In addition to that Hello Client
-* allows another master to connect, so the device will behave as a slave
-* in one Bluetooth piconet and a master in another.  To accomplish that
+* allows another central to connect, so the device will behave as a peripheral
+* in one Bluetooth piconet and a central in another.  To accomplish that
 * application can do both advertisements and scan.  Hello Client assumes
 * that Hello Sensor advertises a special UUID and connects to the device
 * which publishes it.
 *
 * Features demonstrated
 *  - Registration with LE stack for various events
-*  - Connection to a master and a slave
-*  - As a master processing notifications from the server and
+*  - Connection to a central and a peripheral
+*  - As a central processing notifications from the server and
 *    sending notifications to the client
-*  - As a slave processing writes from the client and sending writes
+*  - As a peripheral processing writes from the client and sending writes
 *    to the server
 *
 * To demonstrate the app, work through the following steps.
@@ -59,7 +59,7 @@
 * 2. Build and download the application (to the WICED board)
 * 3. Connect from some client application (for example LightBlue on iOS)
 * 4. From the client application register for notifications
-* 5. Make sure that your slave device (hello_sensor) is up and advertising
+* 5. Make sure that your peripheral device (hello_sensor) is up and advertising
 * 6. Push a button on the tag board for 6 seconds.  That will start
 *    connection process.
 * 7. Push a button on the hello_sensor to deliver notification through
@@ -83,6 +83,9 @@
 #if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20719B0) || defined(CYW20721B1) || defined(CYW20735B0) || defined(CYW43012C0) )
 #include "wiced_bt_app_common.h"
 #endif
+#if defined(CYW55572)
+ #include "bt_types.h"
+#endif
 #include "wiced_platform.h"
 #include "wiced_bt_stack.h"
 #include "wiced_memory.h"
@@ -97,8 +100,8 @@
  ******************************************************************************/
 #define HCLIENT_APP_TIMEOUT_IN_SECONDS              1       /* Hello Client App Timer Timeout in seconds  */
 
-#define HELLO_CLIENT_MAX_SLAVES                     3       /* Hello Client maximum number of slaves that can be connected */
-#define HELLO_CLIENT_MAX_CONNECTIONS                4       /* Hello Client maximum number of connections including master/slave */
+#define HELLO_CLIENT_MAX_PERIPHERALS                3       /* Hello Client maximum number of peripherals that can be connected */
+#define HELLO_CLIENT_MAX_CONNECTIONS                4       /* Hello Client maximum number of connections including central/peripheral */
 
 /* GPIO pins */
 #ifdef CYW20706A2
@@ -115,11 +118,15 @@
 #define HELLO_CLIENT_BUTTON_PRESSED_VALUE            WICED_BUTTON_PRESSED_VALUE
 #endif
 
-#if defined(CYW20719B1) || defined(CYW20719B2) || defined(CYW20721B1) || defined(CYW20721B2) || defined(CYW20735B1) || defined(CYW20819A1)
+#if defined(CYW20719B1) || defined(CYW20719B2) || defined(CYW20721B1) || defined(CYW20721B2) || defined(CYW20735B1) || defined(CYW20835B1) || defined(CYW20819A1)
 #define HELLO_CLIENT_GPIO_BUTTON                     WICED_GPIO_PIN_BUTTON_1
 #define HELLO_CLIENT_BUTTON_PRESSED_VALUE            wiced_platform_get_button_pressed_value(WICED_PLATFORM_BUTTON_1)
 #endif
 
+#if defined(CYW55572) // We still cannot use Configurator to configure LED yet, we just force it to use PIN 26
+ #define HELLO_CLIENT_GPIO_BUTTON               26
+ #define HELLO_CLIENT_BUTTON_PRESSED_VALUE      1
+#endif
 
 enum
 {
@@ -173,7 +180,7 @@ typedef struct
 typedef struct
 {
     uint16_t conn_id;                   // Connection Identifier
-    uint8_t  role;                      // master or slave in the current connection
+    uint8_t  role;                      // central or peripheral in the current connection
     uint8_t  addr_type;                 // peer address type
     uint8_t  transport;                 // peer connected transport
     uint8_t  peer_addr[BD_ADDR_LEN];    // Peer BD Address
@@ -190,9 +197,9 @@ typedef struct
 typedef struct
 {
     uint32_t                 app_timer_count;                         // App Timer Count
-    uint16_t                 conn_id;                                 // Hold the slave connection id
+    uint16_t                 conn_id;                                 // Hold the peripheral connection id
     uint8_t                  num_connections;                         // Number of connections
-    uint16_t                 master_conn_id;                          // Handle of the master connection
+    uint16_t                 central_conn_id;                         // Handle of the central connection
     uint8_t                  battery_level;                           // dummy battery level
     hclient_host_info_t      host_info;                               // NVRAM save area
     hello_client_peer_info_t peer_info[HELLO_CLIENT_MAX_CONNECTIONS]; // Peer Info
@@ -223,13 +230,13 @@ const uint8_t hello_client_gatt_database[]=
     PRIMARY_SERVICE_UUID16( HANDLE_HCLIENT_GAP_SERVICE, UUID_SERVICE_GAP ),
 
         CHARACTERISTIC_UUID16( HANDLE_HCLIENT_GAP_SERVICE_CHAR_DEV_NAME, HANDLE_HCLIENT_GAP_SERVICE_CHAR_DEV_NAME_VAL,
-             UUID_CHARACTERISTIC_DEVICE_NAME, LEGATTDB_CHAR_PROP_READ, LEGATTDB_PERM_READABLE ),
+             UUID_CHARACTERISTIC_DEVICE_NAME, GATTDB_CHAR_PROP_READ, GATTDB_PERM_READABLE ),
 
         // Handle 0x17: characteristic Appearance, handle 0x18 characteristic value.
         // List of approved appearances is available at bluetooth.org.  Current
         // value is set to 0x200 - Generic Tag
         CHARACTERISTIC_UUID16( HANDLE_HCLIENT_GAP_SERVICE_CHAR_DEV_APPEARANCE, HANDLE_HCLIENT_GAP_SERVICE_CHAR_DEV_APPEARANCE_VAL,
-             UUID_CHARACTERISTIC_APPEARANCE, LEGATTDB_CHAR_PROP_READ, LEGATTDB_PERM_READABLE ),
+             UUID_CHARACTERISTIC_APPEARANCE, GATTDB_CHAR_PROP_READ, GATTDB_PERM_READABLE ),
 
     // Handle 0x28: Hello Client Service.
     // This is the main proprietary service of Hello Client application.  It has
@@ -246,9 +253,9 @@ const uint8_t hello_client_gatt_database[]=
         // 16 bytes, unlike standard Bluetooth UUIDs which are 2 bytes.  _UUID128 version
         // of the macro should be used.
         CHARACTERISTIC_UUID128_WRITABLE( HANDLE_HELLO_CLIENT_SERVICE_CHAR_NOTIFY, HANDLE_HELLO_CLIENT_SERVICE_CHAR_NOTIFY_VAL,
-             UUID_HELLO_CLIENT_DATA, LEGATTDB_CHAR_PROP_READ | LEGATTDB_CHAR_PROP_WRITE |
-             LEGATTDB_CHAR_PROP_WRITE_NO_RESPONSE | LEGATTDB_CHAR_PROP_NOTIFY | LEGATTDB_CHAR_PROP_INDICATE,
-             LEGATTDB_PERM_READABLE  | LEGATTDB_PERM_WRITE_CMD  | LEGATTDB_PERM_WRITE_REQ | LEGATTDB_PERM_VARIABLE_LENGTH ),
+             UUID_HELLO_CLIENT_DATA, GATTDB_CHAR_PROP_READ | GATTDB_CHAR_PROP_WRITE |
+             GATTDB_CHAR_PROP_WRITE_NO_RESPONSE | GATTDB_CHAR_PROP_NOTIFY | GATTDB_CHAR_PROP_INDICATE,
+             GATTDB_PERM_READABLE  | GATTDB_PERM_WRITE_CMD  | GATTDB_PERM_WRITE_REQ | GATTDB_PERM_VARIABLE_LENGTH ),
 
             // Handle 0x2b: Characteristic Client Configuration Descriptor.
             // This is standard GATT characteristic descriptor.  2 byte value 0 means that
@@ -256,7 +263,7 @@ const uint8_t hello_client_gatt_database[]=
             // notifications or indications respectively.  Not _WRITABLE in the macro.  This
             // means that attribute can be written by the peer.
             CHAR_DESCRIPTOR_UUID16_WRITABLE( HANDLE_HELLO_CLIENT_SERVICE_CHAR_CFG_DESC,
-                 UUID_DESCRIPTOR_CLIENT_CHARACTERISTIC_CONFIGURATION, LEGATTDB_PERM_READABLE | LEGATTDB_PERM_WRITE_REQ | LEGATTDB_PERM_AUTH_READABLE | LEGATTDB_PERM_AUTH_WRITABLE),
+                 UUID_DESCRIPTOR_CLIENT_CHARACTERISTIC_CONFIGURATION, GATTDB_PERM_READABLE | GATTDB_PERM_WRITE_REQ | GATTDB_PERM_AUTH_READABLE | GATTDB_PERM_AUTH_WRITABLE),
 
     // Handle 0x40: Device Info service
     // Device Information service helps peer to identify manufacture or vendor
@@ -267,15 +274,15 @@ const uint8_t hello_client_gatt_database[]=
 
         // Handle 0x41: characteristic Manufacturer Name, handle 0x42 characteristic value
         CHARACTERISTIC_UUID16( HANDLE_HCLIENT_DEV_INFO_SERVICE_CHAR_MFR_NAME, HANDLE_HCLIENT_DEV_INFO_SERVICE_CHAR_MFR_NAME_VAL,
-             UUID_CHARACTERISTIC_MANUFACTURER_NAME_STRING, LEGATTDB_CHAR_PROP_READ, LEGATTDB_PERM_READABLE ),
+             UUID_CHARACTERISTIC_MANUFACTURER_NAME_STRING, GATTDB_CHAR_PROP_READ, GATTDB_PERM_READABLE ),
 
         // Handle 0x43: characteristic Model Number, handle 0x4 characteristic value
         CHARACTERISTIC_UUID16( HANDLE_HCLIENT_DEV_INFO_SERVICE_CHAR_MODEL_NUM, HANDLE_HCLIENT_DEV_INFO_SERVICE_CHAR_MODEL_NUM_VAL,
-             UUID_CHARACTERISTIC_MODEL_NUMBER_STRING, LEGATTDB_CHAR_PROP_READ, LEGATTDB_PERM_READABLE ),
+             UUID_CHARACTERISTIC_MODEL_NUMBER_STRING, GATTDB_CHAR_PROP_READ, GATTDB_PERM_READABLE ),
 
         // Handle 0x45: characteristic System ID, handle 0x46 characteristic value
         CHARACTERISTIC_UUID16( HANDLE_HCLIENT_DEV_INFO_SERVICE_CHAR_SYSTEM_ID, HANDLE_HCLIENT_DEV_INFO_SERVICE_CHAR_SYSTEM_ID_VAL,
-             UUID_CHARACTERISTIC_SYSTEM_ID, LEGATTDB_CHAR_PROP_READ, LEGATTDB_PERM_READABLE ),
+             UUID_CHARACTERISTIC_SYSTEM_ID, GATTDB_CHAR_PROP_READ, GATTDB_PERM_READABLE ),
 
     // Handle 0x60: Battery service
     // This is an optional service which allows peer to read current battery level.
@@ -283,7 +290,7 @@ const uint8_t hello_client_gatt_database[]=
 
         // Handle 0x61: characteristic Battery Level, handle 0x62 characteristic value
         CHARACTERISTIC_UUID16( HANDLE_HCLIENT_BATTERY_SERVICE_CHAR_LEVEL, HANDLE_HCLIENT_BATTERY_SERVICE_CHAR_LEVEL_VAL,
-             UUID_CHARACTERISTIC_BATTERY_LEVEL, LEGATTDB_CHAR_PROP_READ, LEGATTDB_PERM_READABLE ),
+             UUID_CHARACTERISTIC_BATTERY_LEVEL, GATTDB_CHAR_PROP_READ, GATTDB_PERM_READABLE ),
 };
 
 /* Holds the hello client app info */
@@ -322,11 +329,20 @@ const wiced_transport_cfg_t  transport_cfg =
             .baud_rate =  HCI_UART_DEFAULT_BAUD
         },
     },
+#ifdef NEW_DYNAMIC_MEMORY_INCLUDED
+    .heap_config =
+    {
+        .data_heap_size = 1024 * 4 + 1500 * 2,
+        .hci_trace_heap_size = 1024 * 2,
+        .debug_trace_heap_size = 1024,
+    },
+#else
     .rx_buff_pool_cfg =
     {
         .buffer_size = 0,
         .buffer_count = 0
     },
+#endif
     .p_status_handler = NULL,
     .p_data_handler = NULL,
     .p_tx_complete_cback = NULL
@@ -348,7 +364,17 @@ wiced_bt_buffer_pool_t*        p_hello_client_buffer_pool;
 #endif
 
 extern const wiced_bt_cfg_settings_t wiced_bt_cfg_settings;
-extern const wiced_bt_cfg_buf_pool_t wiced_bt_cfg_buf_pools[];
+#ifdef BTSTACK_VER
+ #define BT_STACK_HEAP_SIZE          1024 * 6
+ wiced_bt_heap_t *p_default_heap = NULL;
+ wiced_bt_db_hash_t headset_db_hash;
+ #define wiced_bt_gatt_send_notification(id, type, len, ptr) wiced_bt_gatt_server_send_notification(id, type, len, ptr, NULL)
+ #define wiced_bt_gatt_send_indication(id, type, len, ptr)   wiced_bt_gatt_server_send_indication(id, type, len, ptr, NULL)
+#else
+ extern const wiced_bt_cfg_buf_pool_t wiced_bt_cfg_buf_pools[];
+ // rename Attribute header for new stack
+ #define wiced_bt_gatt_write_hdr_t wiced_bt_gatt_value_t
+#endif
 
 wiced_timer_t hello_client_second_timer;
 
@@ -362,8 +388,6 @@ static wiced_bt_gatt_status_t   hello_client_gatt_connection_up( wiced_bt_gatt_c
 static wiced_bt_gatt_status_t   hello_client_gatt_connection_down( wiced_bt_gatt_connection_status_t *p_conn_status );
 static wiced_bt_gatt_status_t   hello_client_gatt_op_comp_cb( wiced_bt_gatt_operation_complete_t *p_data );
 static wiced_bt_gatt_status_t   hello_client_gatt_req_cb( wiced_bt_gatt_attribute_request_t *p_data );
-static wiced_bt_gatt_status_t   hello_client_gatt_read_handler( uint16_t conn_id, wiced_bt_gatt_read_t *p_read_data );
-static wiced_bt_gatt_status_t   hello_client_gatt_write_handler( uint16_t conn_id, wiced_bt_gatt_write_t * p_data );
 static void                     hello_client_set_advertisement_data( void );
 static void                     hello_client_interrupt_handler(void* user_data, uint8_t value );
 static void                     hello_client_app_timer( uint32_t arg );
@@ -376,12 +400,12 @@ static hello_client_peer_info_t *hello_client_get_peer_information( uint16_t con
 static wiced_bool_t             hello_client_save_link_keys( wiced_bt_device_link_keys_t *p_keys);
 static wiced_bool_t             hello_client_read_link_keys( wiced_bt_device_link_keys_t *p_keys);
 static void                     hello_client_load_keys_to_addr_resolution_db( void );
-static void                     hello_client_process_data_from_slave( int len, uint8_t *data );
+static void                     hello_client_process_data_from_peripheral( int len, uint8_t *data );
 static void                     hello_client_gatt_enable_notification ( void );
 static const gatt_attribute_t*  hello_client_get_attribute(uint16_t handle);
 static wiced_bool_t             hello_client_is_device_bonded( wiced_bt_device_address_t bd_address );
-static int                      hello_client_get_num_slaves(void);
-static int                      hello_client_is_master( BD_ADDR bda );
+static int                      hello_client_get_num_peripherals(void);
+static int                      hello_client_is_central( BD_ADDR bda );
 
 /*
  *  Entry point to the application. Set device configuration and start BT
@@ -415,10 +439,21 @@ APPLICATION_START( )
     // wiced_set_debug_uart(WICED_ROUTE_DEBUG_TO_WICED_UART);
 #endif
 
+#ifdef BTSTACK_VER
+    /* Create default heap */
+    p_default_heap = wiced_bt_create_heap("default_heap", NULL, BT_STACK_HEAP_SIZE, NULL, WICED_TRUE);
+    if (p_default_heap == NULL)
+    {
+        WICED_BT_TRACE("create default heap error: size %d\n", BT_STACK_HEAP_SIZE);
+        return;
+    }
+    wiced_bt_stack_init(hello_client_management_cback, &wiced_bt_cfg_settings);
+#else
     // WICED BT Stack initialization and registering the managment callback
     // init complete
     wiced_bt_stack_init( hello_client_management_cback,
                     &wiced_bt_cfg_settings, wiced_bt_cfg_buf_pools );
+#endif
 }
 
 
@@ -528,9 +563,9 @@ wiced_result_t hello_client_management_cback( wiced_bt_management_evt_t event,  
             WICED_BT_TRACE( "Advertisement State Change: %d\n", p_event_data->ble_advert_state_changed);
             if ( p_event_data->ble_advert_state_changed == BTM_BLE_ADVERT_OFF )
             {
-                if ( g_hello_client.master_conn_id == 0 )
+                if ( g_hello_client.central_conn_id == 0 )
                 {
-                    // Start the advertisement to enable slave connection
+                    // Start the advertisement to enable peripheral connection
                     result =  wiced_bt_start_advertisements( BTM_BLE_ADVERT_UNDIRECTED_LOW, 0, NULL );
                     WICED_BT_TRACE( "wiced_bt_start_advertisements: %d\n", result );
                 }
@@ -551,7 +586,11 @@ wiced_result_t hello_client_management_cback( wiced_bt_management_evt_t event,  
 void hello_client_hci_trace_cback( wiced_bt_hci_trace_type_t type, uint16_t length, uint8_t* p_data )
 {
     //send the trace
-    wiced_transport_send_hci_trace( NULL, type, length, p_data  );
+ #ifdef NEW_DYNAMIC_MEMORY_INCLUDED
+    wiced_transport_send_hci_trace( type, p_data, length );
+ #else
+    wiced_transport_send_hci_trace( NULL, type, length, p_data );
+ #endif
 }
 #endif
 
@@ -602,7 +641,11 @@ void hello_client_app_init( void )
     WICED_BT_TRACE( "wiced_bt_gatt_register status %d \n", gatt_status );
 
     /*  GATT DB Initialization */
+#ifdef BTSTACK_VER
+    gatt_status =  wiced_bt_gatt_db_init( hello_client_gatt_database, sizeof(hello_client_gatt_database), headset_db_hash );
+#else
     gatt_status =  wiced_bt_gatt_db_init( hello_client_gatt_database, sizeof( hello_client_gatt_database ) );
+#endif
 
     WICED_BT_TRACE( "wiced_bt_gatt_db_init %d \n", gatt_status );
 
@@ -695,17 +738,17 @@ wiced_bt_gatt_status_t hello_client_gatt_connection_up( wiced_bt_gatt_connection
     WICED_BT_TRACE( "hclient_connection_up Conn Id:%d Num conn:%d,Addr:<%B> role:%d\n ",
        p_conn_status->conn_id, g_hello_client.num_connections, p_conn_status->bd_addr, dev_role );
 
-    // This application supports single connection to master (phone) and multiple connections to slaves (hello_sensors)
-    if ( dev_role == HCI_ROLE_MASTER )
+    // This application supports single connection to central (phone) and multiple connections to peripherals (hello_sensors)
+    if ( dev_role == HCI_ROLE_CENTRAL )
     {
         g_hello_client.conn_id = p_conn_status->conn_id;
         /* Configure to receive notification from server */
         hello_client_gatt_enable_notification( );
     }
-    else // Connected as slave
+    else // Connected as peripheral
     {
-        // Update the connection handle to the master
-        g_hello_client.master_conn_id = p_conn_status->conn_id;
+        // Update the connection handle to the central
+        g_hello_client.central_conn_id = p_conn_status->conn_id;
 
         // Stop the advertisement
         status =  wiced_bt_start_advertisements( BTM_BLE_ADVERT_OFF, 0, NULL );
@@ -729,23 +772,23 @@ wiced_bt_gatt_status_t hello_client_gatt_connection_down( wiced_bt_gatt_connecti
         g_hello_client.num_connections--;
     }
 
-    if ( p_conn_status->link_role == HCI_ROLE_SLAVE )
+    if ( p_conn_status->link_role == HCI_ROLE_PERIPHERAL )
     {
-        //Resetting the connection handle to the master
-        g_hello_client.master_conn_id = 0;
+        //Resetting the connection handle to the central
+        g_hello_client.central_conn_id = 0;
     }
 
     //Remove the peer info
     hello_client_remove_peer_info( p_conn_status->conn_id );
 
-     /*  Start the inquiry to search for other available slaves */
+     /*  Start the inquiry to search for other available peripherals */
     if ( g_hello_client.num_connections < HELLO_CLIENT_MAX_CONNECTIONS )
     {
-        uint8_t num_slaves = hello_client_get_num_slaves( );
+        uint8_t num_peripherals = hello_client_get_num_peripherals( );
 
-        if ( g_hello_client.master_conn_id == 0 )
+        if ( g_hello_client.central_conn_id == 0 )
         {
-            // Start the advertisement to enable slave connection
+            // Start the advertisement to enable peripheral connection
             status =  wiced_bt_start_advertisements( BTM_BLE_ADVERT_UNDIRECTED_HIGH, 0, NULL );
             WICED_BT_TRACE( "wiced_bt_start_advertisements: %d\n", status );
         }
@@ -765,6 +808,53 @@ wiced_bt_gatt_status_t hello_client_gatt_op_comp_cb( wiced_bt_gatt_operation_com
 
     WICED_BT_TRACE("hello_client_gatt_op_comp_cb conn %d op %d st %d\n", p_data->conn_id, p_data->op, p_data->status );
 
+#if BTSTACK_VER > 0x01020000
+    switch ( p_data->op )
+    {
+    case GATTC_OPTYPE_READ_HANDLE:
+    case GATTC_OPTYPE_READ_BY_TYPE:
+    case GATTC_OPTYPE_READ_MULTIPLE:
+        WICED_BT_TRACE( "read_rsp status:%d\n", p_data->status );
+        break;
+
+    case GATTC_OPTYPE_WRITE_WITH_RSP:
+    case GATTC_OPTYPE_WRITE_NO_RSP:
+        WICED_BT_TRACE( "write_rsp status:%d\n", p_data->status );
+
+        /* server puts authentication requirement. Encrypt the link */
+        if( ( p_data->status == WICED_BT_GATT_INSUF_AUTHENTICATION ) && ( p_data->response_data.handle == HANDLE_HSENS_SERVICE_CHAR_CFG_DESC ) )
+        {
+            if ( ( p_peer_info = hello_client_get_peer_information( p_data->conn_id ) ) != NULL )
+            {
+                if ( hello_client_is_device_bonded(p_peer_info->peer_addr) )
+                {
+                    status = wiced_bt_dev_set_encryption( p_peer_info->peer_addr, p_peer_info->transport, &encryption_type );
+                    WICED_BT_TRACE( "wiced_bt_dev_set_encryption %d \n", status );
+                }
+                else
+                {
+                    status = wiced_bt_dev_sec_bond( p_peer_info->peer_addr, p_peer_info->addr_type,
+                                                        p_peer_info->transport,0, NULL );
+                    WICED_BT_TRACE( "wiced_bt_dev_sec_bond %d \n", status );
+                }
+            }
+        }
+        break;
+
+    case GATTC_OPTYPE_CONFIG_MTU:
+        WICED_BT_TRACE( "peer mtu:%d\n", p_data->response_data.mtu );
+        break;
+
+    case GATTC_OPTYPE_NOTIFICATION:
+        hello_client_process_data_from_peripheral( p_data->response_data.att_value.len, p_data->response_data.att_value.p_data );
+        break;
+
+    case GATTC_OPTYPE_INDICATION:
+        hello_client_process_data_from_peripheral( p_data->response_data.att_value.len, p_data->response_data.att_value.p_data );
+        wiced_bt_gatt_client_send_indication_confirm( p_data->conn_id, p_data->response_data.handle );
+        break;
+    }
+#else
     switch ( p_data->op )
     {
     case GATTC_OPTYPE_READ:
@@ -799,69 +889,276 @@ wiced_bt_gatt_status_t hello_client_gatt_op_comp_cb( wiced_bt_gatt_operation_com
         break;
 
     case GATTC_OPTYPE_NOTIFICATION:
-        hello_client_process_data_from_slave( p_data->response_data.att_value.len, p_data->response_data.att_value.p_data );
+        hello_client_process_data_from_peripheral( p_data->response_data.att_value.len, p_data->response_data.att_value.p_data );
         break;
 
     case GATTC_OPTYPE_INDICATION:
-        hello_client_process_data_from_slave( p_data->response_data.att_value.len, p_data->response_data.att_value.p_data );
+        hello_client_process_data_from_peripheral( p_data->response_data.att_value.len, p_data->response_data.att_value.p_data );
         wiced_bt_gatt_send_indication_confirm( p_data->conn_id, p_data->response_data.handle );
         break;
     }
+#endif
     UNUSED_VARIABLE(status);
     return WICED_BT_GATT_SUCCESS;
 }
 
 /*
- * This function handles notification/indication data received fromt the slave device
+ * This function handles notification/indication data received fromt the peripheral device
  */
-void hello_client_process_data_from_slave( int len, uint8_t *data )
+void hello_client_process_data_from_peripheral( int len, uint8_t *data )
 {
-    WICED_BT_TRACE("hello_client_process_data_from_slave len:%d master conn_id:%d ccc:%d\n",
-            len, g_hello_client.master_conn_id, g_hello_client.host_info.characteristic_client_configuration );
+    WICED_BT_TRACE("hello_client_process_data_from_peripheral len:%d central conn_id:%d ccc:%d\n",
+            len, g_hello_client.central_conn_id, g_hello_client.host_info.characteristic_client_configuration );
 
-    // if master allows notifications, forward received data from the slave
+    // if central allows notifications, forward received data from the peripheral
     if ( ( g_hello_client.host_info.characteristic_client_configuration & GATT_CLIENT_CONFIG_NOTIFICATION ) != 0 )
     {
-        wiced_bt_gatt_send_notification( g_hello_client.master_conn_id, HANDLE_HELLO_CLIENT_SERVICE_CHAR_NOTIFY_VAL, len, data );
+        wiced_bt_gatt_send_notification( g_hello_client.central_conn_id, HANDLE_HELLO_CLIENT_SERVICE_CHAR_NOTIFY_VAL, len, data );
     }
     else if ( ( g_hello_client.host_info.characteristic_client_configuration & GATT_CLIENT_CONFIG_INDICATION ) != 0 )
     {
-        wiced_bt_gatt_send_indication( g_hello_client.master_conn_id, HANDLE_HELLO_CLIENT_SERVICE_CHAR_NOTIFY_VAL, len, data );
+        wiced_bt_gatt_send_indication( g_hello_client.central_conn_id, HANDLE_HELLO_CLIENT_SERVICE_CHAR_NOTIFY_VAL, len, data );
     }
 }
 
+#if BTSTACK_VER > 0x01020000
 /*
- * Process various GATT requests received from the master
+ * Process Read request from peer device
  */
-wiced_bt_gatt_status_t hello_client_gatt_req_cb( wiced_bt_gatt_attribute_request_t *p_data )
+wiced_bt_gatt_status_t app_gatt_read_handler(uint16_t conn_id,
+        wiced_bt_gatt_opcode_t opcode,
+        wiced_bt_gatt_read_t *p_read_req,
+        uint16_t len_requested)
 {
-    wiced_bt_gatt_status_t result = WICED_BT_GATT_SUCCESS;
+    const gatt_attribute_t *puAttribute;
+    int          attr_len_to_copy;
+    uint8_t     *from;
+    int          to_send;
 
-    WICED_BT_TRACE( "hello_sensor_gatts_req_cb. conn %d, type %d\n", p_data->conn_id, p_data->request_type );
-
-    switch ( p_data->request_type )
+    if ((puAttribute = hello_client_get_attribute(p_read_req->handle)) == NULL)
     {
-        case GATTS_REQ_TYPE_READ:
-            result = hello_client_gatt_read_handler( p_data->conn_id, &(p_data->data.read_req ) );
-            break;
-
-        case GATTS_REQ_TYPE_WRITE:
-            result = hello_client_gatt_write_handler( p_data->conn_id, &(p_data->data.write_req ) );
-            break;
-
-        case GATTS_REQ_TYPE_MTU:
-            WICED_BT_TRACE( "peer mtu:%d\n", p_data->data.mtu );
-            break;
-
-        default:
-            break;
+        WICED_BT_TRACE("[%s] read_hndlr attr not found hdl:%x\n", __FUNCTION__,
+                p_read_req->handle );
+        wiced_bt_gatt_server_send_error_rsp(conn_id, opcode, p_read_req->handle,
+                WICED_BT_GATT_INVALID_HANDLE);
+        return WICED_BT_GATT_INVALID_HANDLE;
     }
 
-    return result;
+    attr_len_to_copy = puAttribute->attr_len;
+
+    WICED_BT_TRACE("[%s] read_hndlr conn_id:%d hdl:%x offset:%d len:%d\n",
+            __FUNCTION__, conn_id, p_read_req->handle, p_read_req->offset,
+            attr_len_to_copy );
+
+    if (p_read_req->offset >= puAttribute->attr_len )
+    {
+        WICED_BT_TRACE("[%s] offset:%d larger than attribute length:%d\n",
+                __FUNCTION__, p_read_req->offset, puAttribute->attr_len);
+        wiced_bt_gatt_server_send_error_rsp(conn_id, opcode, p_read_req->handle,
+                WICED_BT_GATT_INVALID_OFFSET);
+        return WICED_BT_GATT_INVALID_OFFSET;
+    }
+
+    to_send = MIN(len_requested, attr_len_to_copy - p_read_req->offset);
+
+    from = ((uint8_t *)puAttribute->p_attr) + p_read_req->offset;
+
+    wiced_bt_gatt_server_send_read_handle_rsp(conn_id, opcode, to_send, from, NULL);
+
+    return WICED_BT_GATT_SUCCESS;
 }
 
 /*
- * Process Read Request from master
+ * Process Read by type request from peer device
+ */
+wiced_bt_gatt_status_t app_gatt_read_by_type_handler(uint16_t conn_id,
+        wiced_bt_gatt_opcode_t opcode,
+        wiced_bt_gatt_read_by_type_t *p_read_req,
+        uint16_t len_requested)
+{
+    const gatt_attribute_t *puAttribute;
+    uint16_t    attr_handle = p_read_req->s_handle;
+    uint8_t     *p_rsp = wiced_bt_get_buffer(len_requested);
+    uint16_t    rsp_len = 0;
+    uint8_t    pair_len = 0;
+    int used = 0;
+
+    if (p_rsp == NULL)
+    {
+        WICED_BT_TRACE("[%s] no memory len_requested: %d!!\n", __FUNCTION__,
+                len_requested);
+        wiced_bt_gatt_server_send_error_rsp(conn_id, opcode, attr_handle,
+                WICED_BT_GATT_INSUF_RESOURCE);
+        return WICED_BT_GATT_INSUF_RESOURCE;
+    }
+
+    /* Read by type returns all attributes of the specified type, between the start and end handles */
+    while (WICED_TRUE)
+    {
+        /// Add your code here
+        attr_handle = wiced_bt_gatt_find_handle_by_type(attr_handle,
+                p_read_req->e_handle, &p_read_req->uuid);
+
+        if (attr_handle == 0)
+            break;
+
+        if ((puAttribute = hello_client_get_attribute(attr_handle)) == NULL)
+        {
+            WICED_BT_TRACE("[%s] found type but no attribute ??\n", __FUNCTION__);
+            wiced_bt_gatt_server_send_error_rsp(conn_id, opcode,
+                    p_read_req->s_handle, WICED_BT_GATT_ERR_UNLIKELY);
+            wiced_bt_free_buffer(p_rsp);
+            return WICED_BT_GATT_ERR_UNLIKELY;
+        }
+        // --------
+
+        {
+            int filled = wiced_bt_gatt_put_read_by_type_rsp_in_stream(
+                    p_rsp + used,
+                    len_requested - used,
+                    &pair_len,
+                    attr_handle,
+                    puAttribute->attr_len,
+                    puAttribute->p_attr);
+            if (filled == 0) {
+                break;
+            }
+            used += filled;
+        }
+
+        /* Increment starting handle for next search to one past current */
+        attr_handle++;
+    }
+
+    if (used == 0)
+    {
+        WICED_BT_TRACE("[%s] attr not found 0x%04x -  0x%04x Type: 0x%04x\n",
+                __FUNCTION__, p_read_req->s_handle, p_read_req->e_handle,
+                p_read_req->uuid.uu.uuid16);
+
+        wiced_bt_gatt_server_send_error_rsp(conn_id, opcode, p_read_req->s_handle,
+                WICED_BT_GATT_INVALID_HANDLE);
+        wiced_bt_free_buffer(p_rsp);
+        return WICED_BT_GATT_INVALID_HANDLE;
+    }
+
+    /* Send the response */
+    wiced_bt_gatt_server_send_read_by_type_rsp(conn_id, opcode, pair_len,
+            used, p_rsp, (wiced_bt_gatt_app_context_t)wiced_bt_free_buffer);
+
+    return WICED_BT_GATT_SUCCESS;
+}
+
+/*
+ * Process read multi request from peer device
+ */
+wiced_bt_gatt_status_t app_gatt_read_multi_handler(uint16_t conn_id,
+        wiced_bt_gatt_opcode_t opcode,
+        wiced_bt_gatt_read_multiple_req_t *p_read_req,
+        uint16_t len_requested)
+{
+    const gatt_attribute_t *puAttribute;
+    uint8_t     *p_rsp = wiced_bt_get_buffer(len_requested);
+    int         used = 0;
+    int         xx;
+    uint16_t    handle;
+
+    handle = wiced_bt_gatt_get_handle_from_stream(p_read_req->p_handle_stream, 0);
+
+    if (p_rsp == NULL)
+    {
+        WICED_BT_TRACE ("[%s] no memory len_requested: %d!!\n", __FUNCTION__,
+                len_requested);
+
+        wiced_bt_gatt_server_send_error_rsp(conn_id, opcode, handle,
+                WICED_BT_GATT_INSUF_RESOURCE);
+        return WICED_BT_GATT_INSUF_RESOURCE;
+    }
+
+    /* Read by type returns all attributes of the specified type, between the start and end handles */
+    for (xx = 0; xx < p_read_req->num_handles; xx++)
+    {
+        handle = wiced_bt_gatt_get_handle_from_stream(p_read_req->p_handle_stream,
+                xx);
+        if ((puAttribute = hello_client_get_attribute(handle)) == NULL)
+        {
+            WICED_BT_TRACE ("[%s] no handle 0x%04xn", __FUNCTION__, handle);
+            wiced_bt_gatt_server_send_error_rsp(conn_id, opcode,
+                    *p_read_req->p_handle_stream, WICED_BT_GATT_ERR_UNLIKELY);
+            wiced_bt_free_buffer(p_rsp);
+            return WICED_BT_GATT_ERR_UNLIKELY;
+        }
+
+        {
+            int filled = wiced_bt_gatt_put_read_multi_rsp_in_stream(opcode,
+                    p_rsp + used,
+                    len_requested - used,
+                    puAttribute->handle,
+                    puAttribute->attr_len,
+                    puAttribute->p_attr);
+
+            if (!filled) {
+                break;
+            }
+            used += filled;
+        }
+    }
+
+    if (used == 0)
+    {
+        WICED_BT_TRACE ("[%s] no attr found\n", __FUNCTION__);
+
+        wiced_bt_gatt_server_send_error_rsp(conn_id, opcode,
+                *p_read_req->p_handle_stream, WICED_BT_GATT_INVALID_HANDLE);
+        wiced_bt_free_buffer(p_rsp);
+        return WICED_BT_GATT_INVALID_HANDLE;
+    }
+
+    /* Send the response */
+    wiced_bt_gatt_server_send_read_multiple_rsp(conn_id, opcode, used, p_rsp,
+            (wiced_bt_gatt_app_context_t)wiced_bt_free_buffer);
+
+    return WICED_BT_GATT_SUCCESS;
+}
+
+/*
+ * Process write request or write command from peer device
+ */
+wiced_bt_gatt_status_t app_gatt_write_handler(uint16_t conn_id,
+        wiced_bt_gatt_opcode_t opcode,
+        wiced_bt_gatt_write_req_t* p_data)
+{
+    WICED_BT_TRACE("[%s] conn_id:%d handle:%04x\n", __FUNCTION__, conn_id,
+            p_data->handle);
+
+    return WICED_BT_GATT_SUCCESS;
+}
+
+/*
+ * Process MTU request from the peer
+ */
+wiced_bt_gatt_status_t app_gatt_mtu_handler( uint16_t conn_id, uint16_t mtu)
+{
+    WICED_BT_TRACE("req_mtu: %d\n", mtu);
+    wiced_bt_gatt_server_send_mtu_rsp(conn_id, mtu,
+            wiced_bt_cfg_settings.p_ble_cfg->ble_max_rx_pdu_size);
+    return WICED_BT_GATT_SUCCESS;
+}
+
+/*
+ * Process indication confirm.
+ */
+wiced_bt_gatt_status_t app_gatt_conf_handler(uint16_t conn_id,
+        uint16_t handle)
+{
+    WICED_BT_TRACE("[%s] conn_id:%d handle:%x\n", __FUNCTION__, conn_id, handle);
+
+    return WICED_BT_GATT_SUCCESS;
+}
+
+#else // BTSTACK_VER
+/*
+ * Process Read Request from central
  */
 wiced_bt_gatt_status_t hello_client_gatt_read_handler( uint16_t conn_id, wiced_bt_gatt_read_t *p_read_data )
 {
@@ -912,6 +1209,107 @@ wiced_bt_gatt_status_t hello_client_gatt_write_handler( uint16_t conn_id, wiced_
     }
     return WICED_BT_GATT_SUCCESS;
 }
+#endif // BTSTACK_VER
+
+/*
+ * Process various GATT requests received from the central
+ */
+wiced_bt_gatt_status_t hello_client_gatt_req_cb( wiced_bt_gatt_attribute_request_t *p_req )
+{
+    wiced_bt_gatt_status_t result = WICED_BT_GATT_SUCCESS;
+
+#if BTSTACK_VER > 0x01020000
+    WICED_BT_TRACE( "hello_sensor_gatts_req_cb. conn %d, type %d\n", p_req->conn_id, p_req->opcode );
+
+    switch (p_req->opcode)
+    {
+        case GATT_REQ_READ:
+        case GATT_REQ_READ_BLOB:
+            result = app_gatt_read_handler(p_req->conn_id,
+                    p_req->opcode,
+                    &p_req->data.read_req,
+                    p_req->len_requested);
+            break;
+
+        case GATT_REQ_READ_BY_TYPE:
+            result = app_gatt_read_by_type_handler(p_req->conn_id,
+                    p_req->opcode,
+                    &p_req->data.read_by_type,
+                    p_req->len_requested);
+            break;
+
+        case GATT_REQ_READ_MULTI:
+        case GATT_REQ_READ_MULTI_VAR_LENGTH:
+            result = app_gatt_read_multi_handler(p_req->conn_id,
+                    p_req->opcode,
+                    &p_req->data.read_multiple_req,
+                    p_req->len_requested);
+            break;
+
+        case GATT_REQ_WRITE:
+        case GATT_CMD_WRITE:
+        case GATT_CMD_SIGNED_WRITE:
+            result = app_gatt_write_handler(p_req->conn_id,
+                    p_req->opcode,
+                    &(p_req->data.write_req));
+            if (result == WICED_BT_GATT_SUCCESS)
+            {
+                wiced_bt_gatt_server_send_write_rsp(
+                        p_req->conn_id,
+                        p_req->opcode,
+                        p_req->data.write_req.handle);
+            }
+            else
+            {
+                wiced_bt_gatt_server_send_error_rsp(
+                        p_req->conn_id,
+                        p_req->opcode,
+                        p_req->data.write_req.handle,
+                        result);
+            }
+            break;
+
+        case GATT_REQ_MTU:
+            result = app_gatt_mtu_handler(p_req->conn_id,
+                    p_req->data.remote_mtu);
+            break;
+
+        case GATT_HANDLE_VALUE_CONF:
+            result = app_gatt_conf_handler(p_req->conn_id,
+                    p_req->data.confirm.handle);
+            break;
+
+       default:
+            WICED_BT_TRACE("Invalid GATT request conn_id:%d opcode:%d\n",
+                    p_req->conn_id, p_req->opcode);
+            break;
+    }
+
+#else /* !BTSTACK_VER */
+    WICED_BT_TRACE( "hello_sensor_gatts_req_cb. conn %d, type %d\n", p_req->conn_id, p_req->request_type );
+
+    switch ( p_req->request_type )
+    {
+        case GATTS_REQ_TYPE_READ:
+            result = hello_client_gatt_read_handler( p_req->conn_id, &(p_req->data.read_req ) );
+            break;
+
+        case GATTS_REQ_TYPE_WRITE:
+            result = hello_client_gatt_write_handler( p_req->conn_id, &(p_req->data.write_req ) );
+            break;
+
+        case GATTS_REQ_TYPE_MTU:
+            WICED_BT_TRACE( "peer mtu:%d\n", p_req->data.mtu );
+            break;
+
+        default:
+            break;
+    }
+#endif /* BTSTACK_VER */
+
+    return result;
+}
+
 
 /*
  * Configure data to be sent in the advertisement packets
@@ -945,16 +1343,16 @@ void hello_client_set_advertisement_data( void )
 }
 
 
-static int hello_client_get_num_slaves(void)
+static int hello_client_get_num_peripherals(void)
 {
-    int num_slaves = g_hello_client.num_connections;
+    int num_peripherals = g_hello_client.num_connections;
 
-    if( g_hello_client.master_conn_id )
+    if( g_hello_client.central_conn_id )
     {
-        num_slaves = g_hello_client.num_connections - 1 ;
+        num_peripherals = g_hello_client.num_connections - 1 ;
     }
 
-    return num_slaves;
+    return num_peripherals;
 }
 
 /* The function invoked on timeout of app seconds timer. */
@@ -982,19 +1380,19 @@ void hello_client_smp_bond_result( BD_ADDR bda, uint8_t result )
 {
     wiced_result_t status;
 
-    /*  Start the inquiry to search for other available slaves */
+    /*  Start the inquiry to search for other available peripherals */
     if ( g_hello_client.num_connections < HELLO_CLIENT_MAX_CONNECTIONS )
     {
-        int num_slaves = hello_client_get_num_slaves();
+        int num_peripherals = hello_client_get_num_peripherals();
 
-        if ( g_hello_client.master_conn_id == 0 )
+        if ( g_hello_client.central_conn_id == 0 )
         {
-            // Start the advertisement to enable slave connection
+            // Start the advertisement to enable peripheral connection
             status =  wiced_bt_start_advertisements( BTM_BLE_ADVERT_UNDIRECTED_LOW, 0, NULL );
             WICED_BT_TRACE( "wiced_bt_start_advertisements: %d\n", status );
         }
 
-        if ( ( num_slaves < HELLO_CLIENT_MAX_SLAVES ) && ( start_scan ) )
+        if ( ( num_peripherals < HELLO_CLIENT_MAX_PERIPHERALS ) && ( start_scan ) )
         {
             if( wiced_bt_ble_get_current_scan_state() == BTM_BLE_SCAN_TYPE_NONE )
             {
@@ -1018,10 +1416,10 @@ void hello_client_encryption_changed( wiced_result_t result, uint8_t* p_bd_addr 
     /* Bonding success */
     if( result == WICED_BT_SUCCESS )
     {
-        // When we are connected as a master, we need to enable notifications from the slave
+        // When we are connected as a central, we need to enable notifications from the peripheral
         // This needs to be done only once, because client configuration descriptor value
         // should be persistent across connections with bonded devices.
-        if ( hello_client_is_master ( p_bd_addr) )
+        if ( hello_client_is_central ( p_bd_addr) )
         {
             hello_client_gatt_enable_notification( );
         }
@@ -1032,13 +1430,13 @@ void hello_client_encryption_changed( wiced_result_t result, uint8_t* p_bd_addr 
 void hello_client_interrupt_handler(void* user_data, uint8_t value )
 {
     wiced_result_t  result;
-    int             num_slaves = 0;
+    int             num_peripherals = 0;
     static uint32_t button_pushed_time = 0;
 
     //WICED_BT_TRACE( "But1 %d, But2 %d, But3 %d \n", value & 0x01, ( value & 0x02 ) >> 1, ( value & 0x04 ) >> 2 );
     WICED_BT_TRACE( "hello_client_interrupt_handler, app timer :%d\n", g_hello_client.app_timer_count );
 
-#if ( defined(CYW20719B1) || defined(CYW20721B1) || defined(CYW20735B1) || defined(CYW20819A1) || defined(CYW20721B2) || defined(CYW20719B2) )
+#if ( defined(CYW20719B1) || defined(CYW20721B1) || defined(CYW20735B1) || defined(CYW20835B1) || defined(CYW20819A1) || defined(CYW20721B2) || defined(CYW20719B2) )
     if ( wiced_hal_gpio_get_pin_input_status(WICED_GET_PIN_FOR_BUTTON(WICED_PLATFORM_BUTTON_1)) == wiced_platform_get_button_pressed_value(WICED_PLATFORM_BUTTON_1) )
 #else
     if ( wiced_hal_gpio_get_pin_input_status(HELLO_CLIENT_GPIO_BUTTON) == HELLO_CLIENT_BUTTON_PRESSED_VALUE )
@@ -1053,10 +1451,10 @@ void hello_client_interrupt_handler(void* user_data, uint8_t value )
         //Start the scan if the button is pressed for more than 5 seconds
         if ( g_hello_client.app_timer_count - button_pushed_time > 5 )
         {
-			num_slaves = hello_client_get_num_slaves();
-            WICED_BT_TRACE( " after more than 5s, connecting to next slave number %d\n", num_slaves+1 );
+			num_peripherals = hello_client_get_num_peripherals();
+            WICED_BT_TRACE( " after more than 5s, connecting to next peripheral number %d\n", num_peripherals+1 );
 
-            if ( num_slaves < HELLO_CLIENT_MAX_SLAVES )
+            if ( num_peripherals < HELLO_CLIENT_MAX_PERIPHERALS )
             {
                 start_scan = 1;
                 if( wiced_bt_ble_get_current_scan_state() == BTM_BLE_SCAN_TYPE_NONE )
@@ -1067,13 +1465,13 @@ void hello_client_interrupt_handler(void* user_data, uint8_t value )
             }
             else
             {
-                WICED_BT_TRACE(" Scan Not Started. Connected to HELLO_CLIENT_MAX_SLAVES!! \n" );
+                WICED_BT_TRACE(" Scan Not Started. Connected to HELLO_CLIENT_MAX_PERIPHERALS!! \n" );
             }
         }
         else
         {
             WICED_BT_TRACE( " before less than 5s, sending notifications\n" );
-            wiced_bt_gatt_send_notification( g_hello_client.master_conn_id,
+            wiced_bt_gatt_send_notification( g_hello_client.central_conn_id,
                     HANDLE_HELLO_CLIENT_SERVICE_CHAR_NOTIFY_VAL,
                     sizeof( hello_client_notify_value ), hello_client_notify_value );
         }
@@ -1133,26 +1531,34 @@ void hello_client_gatt_enable_notification ( void )
 
     // Allocating a buffer to send the write request
 #ifdef CYW43012C0
-    wiced_bt_gatt_value_t *p_write = ( wiced_bt_gatt_value_t* )wiced_bt_get_buffer_from_pool( p_hello_client_buffer_pool );
+    wiced_bt_gatt_write_hdr_t *p_write = ( wiced_bt_gatt_write_hdr_t* )wiced_bt_get_buffer_from_pool( p_hello_client_buffer_pool );
 #else
-    wiced_bt_gatt_value_t *p_write = ( wiced_bt_gatt_value_t* )wiced_bt_get_buffer( sizeof( wiced_bt_gatt_value_t ) + 1 );
+    wiced_bt_gatt_write_hdr_t *p_write = ( wiced_bt_gatt_write_hdr_t* )wiced_bt_get_buffer( sizeof( wiced_bt_gatt_write_hdr_t ) + 2 );
 #endif
 
     if ( p_write )
     {
+#if BTSTACK_VER > 0x01020000
+        uint8_t * value_p = (uint8_t *)p_write + sizeof(wiced_bt_gatt_write_hdr_t);
+#else
+        uint8_t * value_p = &p_write->value[0];
+#endif
         p_write->handle   = HANDLE_HSENS_SERVICE_CHAR_CFG_DESC; /* hard coded server ccd */
         p_write->offset   = 0;
         p_write->len      = 2;
         p_write->auth_req = GATT_AUTH_REQ_NONE;
-        p_write->value[0] = u16 & 0xff;
-        p_write->value[1] = (u16 >> 8) & 0xff;
+        value_p[0] = u16 & 0xff;
+        value_p[1] = (u16 >> 8) & 0xff;
 
+#if BTSTACK_VER > 0x01020000
+        status = wiced_bt_gatt_client_send_write ( g_hello_client.conn_id, GATT_CMD_WRITE, p_write, value_p, NULL );
+#else
         // Register with the server to receive notification
         status = wiced_bt_gatt_send_write ( g_hello_client.conn_id, GATT_WRITE, p_write );
-
+        wiced_bt_free_buffer( p_write );
+#endif
         WICED_BT_TRACE("wiced_bt_gatt_send_write \n", status);
 
-        wiced_bt_free_buffer( p_write );
     }
     UNUSED_VARIABLE(status);
 }
@@ -1212,9 +1618,9 @@ hello_client_peer_info_t * hello_client_get_peer_information( uint16_t conn_id )
 }
 
 /*
- * Find out if specific device is connected as a master
+ * Find out if specific device is connected as a central
  */
-static int hello_client_is_master( BD_ADDR bda )
+static int hello_client_is_central( BD_ADDR bda )
 {
     int index;
 
@@ -1224,7 +1630,7 @@ static int hello_client_is_master( BD_ADDR bda )
         {
             if ( memcmp( g_hello_client.peer_info[index].peer_addr, bda, BD_ADDR_LEN) == 0 )
             {
-                return ( g_hello_client.peer_info[index].role == HCI_ROLE_MASTER );
+                return ( g_hello_client.peer_info[index].role == HCI_ROLE_CENTRAL );
             }
         }
     }
