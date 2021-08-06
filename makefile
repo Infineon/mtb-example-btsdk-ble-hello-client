@@ -62,6 +62,8 @@ SUPPORTED_TARGETS = \
   CYBT-343052-EVAL \
   CYW920735Q60EVB-01 \
   CYW920835M2EVB-01 \
+  CYBLE-343072-EVAL-M2B \
+  CYBLE-333074-EVAL-M2B \
   CYBT-423054-EVAL \
   CYBT-413055-EVAL \
   CYBT-483056-EVAL \
@@ -157,7 +159,7 @@ $(error Unable to find any of the available CY_TOOLS_PATHS -- $(CY_TOOLS_PATHS))
 endif
 
 # tools that can be launched with "make open CY_OPEN_TYPE=<tool>
-CY_BT_APP_TOOLS=BTSpy ClientControl
+CY_BT_APP_TOOLS=hello_client
 
 -include internal.mk
 ifeq ($(filter $(TARGET),$(SUPPORTED_TARGETS)),)
