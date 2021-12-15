@@ -71,7 +71,8 @@ SUPPORTED_TARGETS = \
   CYBT-413061-EVAL \
   CYBT-483062-EVAL \
   CYW955572BTEVK-01 \
-  CYW920721M2EVK-02
+  CYW920721M2EVK-02 \
+  CYW920721M2EVB-03
 
 #
 # Advanced Configuration
@@ -107,6 +108,12 @@ endif
 
 CY_APP_DEFINES+=\
     -DWICED_BT_TRACE_ENABLE
+
+#Enable Below Macro to get HCI Traces
+#CY_APP_DEFINES+=-DENABLE_HCI_TRACE
+
+#Enable Below Macro to route API traces to BTSPY
+#CY_APP_DEFINES+=-DNO_PUART_SUPPORT
 
 #
 # Components (middleware libraries)
