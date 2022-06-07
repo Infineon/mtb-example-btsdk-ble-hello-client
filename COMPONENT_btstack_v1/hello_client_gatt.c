@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -60,7 +60,7 @@
 #include "wiced_memory.h"
 #include "wiced_hal_puart.h"
 #include "wiced_timer.h"
-#if !defined(CYW20706A2) && !defined(CYW43012C0) && !defined(CYW55572)
+#if !defined(CYW20706A2)
 #include "cycfg_pins.h"
 #endif
 
