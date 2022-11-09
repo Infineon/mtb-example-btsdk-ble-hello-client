@@ -33,7 +33,7 @@
 
 /** @file
 *
-* BLE Vendor Specific Device
+* LE Vendor Specific Device
 *
 * This file provides definitions and function prototypes for Hello Sensor
 * device
@@ -44,7 +44,7 @@
 
 #ifndef BTSTACK_VER
  #include "wiced_gki.h"
- #if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20719B0) || defined(CYW20721B1) || defined(CYW20735B0) || defined(CYW43012C0) )
+ #if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20721B1) || defined(CYW43012C0) )
   #include "wiced_bt_app_common.h"
   #include "wiced_bt_app_hal_common.h"
  #endif
@@ -67,19 +67,12 @@
 #define HELLO_CLIENT_BUTTON_PRESSED_VALUE            WICED_BUTTON_PRESSED_VALUE
 #endif
 
-#if defined(CYW20719B0) || defined(CYW20735B0)
-#define HELLO_CLIENT_GPIO_BUTTON                     WICED_GPIO_PIN_BUTTON
-#define HELLO_CLIENT_GPIO_SETTINGS                   ( GPIO_INPUT_ENABLE | GPIO_PULL_DOWN | GPIO_EN_INT_BOTH_EDGE )
-#define HELLO_CLIENT_DEFAULT_STATE                   GPIO_PIN_OUTPUT_LOW
-#define HELLO_CLIENT_BUTTON_PRESSED_VALUE            WICED_BUTTON_PRESSED_VALUE
-#endif
-
-#if defined(CYW20719B1) || defined(CYW20719B2) || defined(CYW20721B1) || defined(CYW20721B2) || defined(CYW20735B1) || defined(CYW20835B1) || defined(CYW20819A1) || defined(CYW55572)
+#if defined(CYW20719B1) || defined(CYW20719B2) || defined(CYW20721B1) || defined(CYW20721B2) || defined(CYW20835B1) || defined(CYW20819A1) || defined(CYW55572)
 #define HELLO_CLIENT_GPIO_BUTTON                     WICED_GPIO_PIN_BUTTON_1
 #define HELLO_CLIENT_BUTTON_PRESSED_VALUE            wiced_platform_get_button_pressed_value(WICED_PLATFORM_BUTTON_1)
 #endif
 
-#if defined(CYW20735B1) || defined(CYW20835B1) || defined(CYW20719B1) || defined(CYW20719B2) || defined(CYW20721B1) || defined(CYW20721B2) || defined(CYW20819A1) || defined(CYW30739A0) || defined(CYW55572)
+#if defined(CYW20835B1) || defined(CYW20719B1) || defined(CYW20719B2) || defined(CYW20721B1) || defined(CYW20721B2) || defined(CYW20819A1) || defined(CYW30739A0) || defined(CYW55572)
 #define HELLO_SENSOR_LED_GPIO        (uint32_t)*platform_led[hello_sensor_led_pin].gpio
 #endif
 

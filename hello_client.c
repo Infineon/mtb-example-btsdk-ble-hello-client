@@ -83,7 +83,7 @@
 #include "wiced_hal_nvram.h"
 #include "wiced_transport.h"
 
-#if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20719B0) || defined(CYW20721B1) || defined(CYW20735B0) || defined(CYW43012C0) )
+#if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20721B1) || defined(CYW43012C0) )
 #include "wiced_bt_app_common.h"
 #endif
 #include "wiced_platform.h"
@@ -289,7 +289,7 @@ static int                      hello_client_is_central( BD_ADDR bda );
 /*
  *  Entry point to the application. Set device configuration and start BT
  *  stack initialization.  The actual application initialization will happen
- *  when stack reports that BT device is ready.
+ *  when stack reports that Bluetooth device is ready.
  */
 APPLICATION_START( )
 {
@@ -305,7 +305,7 @@ APPLICATION_START( )
 #else
     // Set to PUART to see traces on peripheral uart(puart)
     wiced_set_debug_uart( WICED_ROUTE_DEBUG_TO_PUART );
-#if ( defined(CYW20706A2) || defined(CYW20735B0) || defined(CYW20719B0) || defined(CYW43012C0) )
+#if ( defined(CYW20706A2) || defined(CYW43012C0) )
     wiced_hal_puart_select_uart_pads( WICED_PUART_RXD, WICED_PUART_TXD, 0, 0);
 #endif
 #endif
@@ -323,7 +323,7 @@ APPLICATION_START( )
 
 
 /*
- * hello client bt/ble device and link management callbacks
+ * hello client device and link management callbacks
  */
 wiced_result_t hello_client_management_cback( wiced_bt_management_evt_t event,  wiced_bt_management_evt_data_t *p_event_data)
 {
@@ -460,7 +460,7 @@ void hello_client_hci_trace_cback( wiced_bt_hci_trace_type_t type, uint16_t leng
 #endif
 
 /*
- * WICED BT Init Complete.  This function is called when device initialization
+ * AIROC Bluetooth Init Complete.  This function is called when device initialization
  * has been completed.  Perform the App Initializations & Callback Registrations
  */
 void hello_client_app_init( void )
@@ -484,7 +484,7 @@ void hello_client_app_init( void )
     wiced_bt_app_init( );
 #endif
 
-#if defined(CYW20706A2) || defined(CYW20719B0) || defined(CYW20735B0)
+#if defined(CYW20706A2)
     wiced_hal_gpio_register_pin_for_interrupt( HELLO_CLIENT_GPIO_BUTTON, hello_client_interrupt_handler, NULL );
     wiced_hal_gpio_configure_pin( HELLO_CLIENT_GPIO_BUTTON, HELLO_CLIENT_GPIO_SETTINGS , HELLO_CLIENT_DEFAULT_STATE );
 #else

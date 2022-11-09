@@ -33,7 +33,7 @@
 
 /** @file
 *
-* BLE Hello Client Gatt functions for btstack v3
+* LE Hello Client Gatt functions for btstack v3
 *
 */
 #include <string.h>
