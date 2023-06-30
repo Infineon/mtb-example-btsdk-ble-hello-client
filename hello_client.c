@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
  *
  * This software, including source code, documentation and related
@@ -82,6 +82,7 @@
 #include "wiced_bt_trace.h"
 #include "wiced_hal_nvram.h"
 #include "wiced_transport.h"
+#include "wiced_hal_gpio.h"
 
 #if ( defined(CYW20706A2) || defined(CYW20719B1) || defined(CYW20721B1) || defined(CYW43012C0) )
 #include "wiced_bt_app_common.h"
@@ -91,7 +92,7 @@
 
 #include "wiced_hal_puart.h"
 #include "wiced_timer.h"
-#if !defined(CYW20706A2)
+#if !defined(CYW20706A2) && !defined(CYW43022C1) // Remove CYW43022C1 when USE_DESIGN_MODUS is enabled.
 #include "cycfg_pins.h"
 #endif
 
@@ -247,6 +248,10 @@ uint8_t start_scan = 0;
 wiced_bt_buffer_pool_t*        p_hello_client_buffer_pool;
 #endif
 
+#if defined(CYW43022C1)
+void debug_uart_set_baudrate(uint32_t baud_rate);
+#endif
+
 wiced_timer_t hello_client_second_timer;
 
 /******************************************************************************
@@ -293,6 +298,7 @@ static int                      hello_client_is_central( BD_ADDR bda );
  */
 APPLICATION_START( )
 {
+
     wiced_transport_init( &transport_cfg );
 
 #ifdef WICED_BT_TRACE_ENABLE
@@ -303,10 +309,22 @@ APPLICATION_START( )
     // if a board does not have PUART support, route to WICED UART by default, see below
     wiced_set_debug_uart( WICED_ROUTE_DEBUG_TO_WICED_UART );
 #else
+#if defined(CYW43022C1)
+    // 43022 transport clock rate is 24Mhz for baud rates <= 1.5 Mbit/sec, and 48Mhz for baud rates > 1.5 Mbit/sec.
+    // HCI UART and Debug UART both use the Transport clock, so if the HCI UART rate is <= 1.5 Mbps, please do not set the Debug UART > 1.5 Mbps.
+    // The default Debug UART baud rate is 115200, and default HCI UART baud rate is 3Mbps
+    debug_uart_set_baudrate(115200);
+
+    // CYW943022M2BTBGA doesn't have GPIO pin for PUART.
+    // CYW943022M2BTBGA Debug UART Tx (WICED_GPIO_02) is connected to UART2_RX (ARD_D1) on PUART Level Translators of CYW9BTM2BASE1.
+    // We need to set to WICED_ROUTE_DEBUG_TO_DBG_UART to see traces on PUART of CYW9BTM2BASE1.
+    wiced_set_debug_uart( WICED_ROUTE_DEBUG_TO_DBG_UART );
+#else
     // Set to PUART to see traces on peripheral uart(puart)
     wiced_set_debug_uart( WICED_ROUTE_DEBUG_TO_PUART );
 #if ( defined(CYW20706A2) || defined(CYW43012C0) )
     wiced_hal_puart_select_uart_pads( WICED_PUART_RXD, WICED_PUART_TXD, 0, 0);
+#endif
 #endif
 #endif
 
@@ -451,7 +469,7 @@ wiced_result_t hello_client_management_cback( wiced_bt_management_evt_t event,  
 void hello_client_hci_trace_cback( wiced_bt_hci_trace_type_t type, uint16_t length, uint8_t* p_data )
 {
     //send the trace
-#if BTSTACK_VER >= 0x03000001
+ #ifdef NEW_DYNAMIC_MEMORY_INCLUDED
     wiced_transport_send_hci_trace( type, p_data, length );
 #else
     wiced_transport_send_hci_trace( NULL, type, length, p_data );
@@ -488,9 +506,16 @@ void hello_client_app_init( void )
     wiced_hal_gpio_register_pin_for_interrupt( HELLO_CLIENT_GPIO_BUTTON, hello_client_interrupt_handler, NULL );
     wiced_hal_gpio_configure_pin( HELLO_CLIENT_GPIO_BUTTON, HELLO_CLIENT_GPIO_SETTINGS , HELLO_CLIENT_DEFAULT_STATE );
 #else
+#ifdef CYW43022C1
+    // Set WICED_BT_GPIO_04 (J4, pin SDA) as User button (J12, pin 1) connected to
+    wiced_hal_gpio_select_function(WICED_GPIO_04, WICED_GPIO);
+    wiced_hal_gpio_configure_pin(WICED_GPIO_04, GPIO_INPUT_ENABLE | WICED_GPIO_EN_INT_BOTH_EDGE, 1);
+    wiced_hal_gpio_register_pin_for_interrupt(WICED_GPIO_04, hello_client_interrupt_handler, NULL);
+#else
 #ifndef CYW43012C0
     /* Configure buttons available on the platform */
     wiced_platform_register_button_callback( WICED_PLATFORM_BUTTON_1, hello_client_interrupt_handler, NULL, WICED_PLATFORM_BUTTON_BOTH_EDGE);
+#endif
 #endif
 #endif
     // reset connection information

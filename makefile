@@ -1,5 +1,5 @@
 #
-# Copyright 2016-2022, Cypress Semiconductor Corporation (an Infineon company) or
+# Copyright 2016-2023, Cypress Semiconductor Corporation (an Infineon company) or
 # an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 #
 # This software, including source code, documentation and related
@@ -69,6 +69,7 @@ SUPPORTED_TARGETS = \
   CYBT-423060-EVAL \
   CYBT-413061-EVAL \
   CYBT-483062-EVAL \
+  CYW943022BTEVK-01 \
   CYW955572BTEVK-01 \
   CYW920721M2EVK-02 \
   CYW920721M2EVB-03 \
@@ -111,9 +112,6 @@ CY_APP_DEFINES+=\
 
 #Enable Below Macro to get HCI Traces
 #CY_APP_DEFINES+=-DENABLE_HCI_TRACE
-
-#Enable Below Macro to route API traces to BTSPY
-#CY_APP_DEFINES+=-DNO_PUART_SUPPORT
 
 #
 # Components (middleware libraries)
