@@ -39,8 +39,8 @@
 * device
 *
 */
-#ifndef _HELLO_SENSOR_H_
-#define _HELLO_SENSOR_H_
+#ifndef _HELLO_CLIENT_H_
+#define _HELLO_CLIENT_H_
 
 
 #if BTSTACK_VER >= 0x03000001
@@ -79,11 +79,7 @@ typedef void (*pfn_free_buffer_t)(uint8_t *);
 #define HELLO_CLIENT_BUTTON_PRESSED_VALUE            wiced_platform_get_button_pressed_value(WICED_PLATFORM_BUTTON_1)
 #endif
 
-#if defined(CYW20835B1) || defined(CYW20719B1) || defined(CYW20719B2) || defined(CYW20721B1) || defined(CYW20721B2) || defined(CYW20819A1) || defined(CYW30739A0) || defined(CYW55572)
-#define HELLO_SENSOR_LED_GPIO        (uint32_t)*platform_led[hello_sensor_led_pin].gpio
-#endif
-
-#define HCLIENT_APP_TIMEOUT_IN_SECONDS              1       /* Hello Client App Timer Timeout in seconds  */
+#define HCLIENT_APP_TIMEOUT_IN_MSECONDS             50       /* Hello Client App Timer Timeout in milliseconds  */
 
 #define HELLO_CLIENT_MAX_PERIPHERALS                3       /* Hello Client maximum number of peripherals that can be connected */
 #define HELLO_CLIENT_MAX_CONNECTIONS                4       /* Hello Client maximum number of connections including central/peripheral */
@@ -167,4 +163,4 @@ typedef struct
  #define wiced_bt_gatt_send_indication(id, type, len, ptr)                          wiced_bt_gatt_server_send_indication(id, type, len, ptr, NULL)
 #endif
 
-#endif // _HELLO_SENSOR_H_
+#endif // _HELLO_CLIENT_H_

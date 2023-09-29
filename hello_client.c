@@ -248,11 +248,7 @@ uint8_t start_scan = 0;
 wiced_bt_buffer_pool_t*        p_hello_client_buffer_pool;
 #endif
 
-#if defined(CYW43022C1)
-void debug_uart_set_baudrate(uint32_t baud_rate);
-#endif
-
-wiced_timer_t hello_client_second_timer;
+wiced_timer_t hello_client_ms_timer;
 
 /******************************************************************************
  *  Imported Function Declartions
@@ -508,9 +504,9 @@ void hello_client_app_init( void )
 #else
 #ifdef CYW43022C1
     // Set WICED_BT_GPIO_04 (J4, pin SDA) as User button (J12, pin 1) connected to
-    wiced_hal_gpio_select_function(WICED_GPIO_04, WICED_GPIO);
-    wiced_hal_gpio_configure_pin(WICED_GPIO_04, GPIO_INPUT_ENABLE | WICED_GPIO_EN_INT_BOTH_EDGE, 1);
-    wiced_hal_gpio_register_pin_for_interrupt(WICED_GPIO_04, hello_client_interrupt_handler, NULL);
+    wiced_hal_gpio_select_function(WICED_GPIO_PIN_BUTTON_1, WICED_GPIO);
+    wiced_hal_gpio_configure_pin(WICED_GPIO_PIN_BUTTON_1, GPIO_INPUT_ENABLE | WICED_GPIO_EN_INT_BOTH_EDGE, 1);
+    wiced_hal_gpio_register_pin_for_interrupt(WICED_GPIO_PIN_BUTTON_1, hello_client_interrupt_handler, NULL);
 #else
 #ifndef CYW43012C0
     /* Configure buttons available on the platform */
@@ -553,9 +549,9 @@ void hello_client_app_init( void )
 
     WICED_BT_TRACE( "wiced_bt_start_advertisements %d\n", result );
 
-    /* Starting the app timers , seconds timer and the ms timer  */
-    wiced_init_timer(&hello_client_second_timer, hello_client_app_timer, 0, WICED_SECONDS_PERIODIC_TIMER);
-    wiced_start_timer( &hello_client_second_timer, HCLIENT_APP_TIMEOUT_IN_SECONDS );
+    /* Init and starting the app timer  */
+    wiced_init_timer(&hello_client_ms_timer, hello_client_app_timer, 0, WICED_MILLI_SECONDS_PERIODIC_TIMER);
+    wiced_start_timer( &hello_client_ms_timer, HCLIENT_APP_TIMEOUT_IN_MSECONDS );
     UNUSED_VARIABLE(result);
     UNUSED_VARIABLE(gatt_status);
 }

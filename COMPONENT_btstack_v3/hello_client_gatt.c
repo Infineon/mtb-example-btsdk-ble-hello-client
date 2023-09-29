@@ -40,6 +40,7 @@
 #include "sparcommon.h"
 #include "bt_types.h"
 #include "wiced_bt_dev.h"
+#include "wiced_bt_event.h"
 #include "wiced_bt_uuid.h"
 #include "wiced_bt_ble.h"
 #include "wiced_bt_gatt.h"
@@ -214,16 +215,15 @@ wiced_bt_gatt_status_t hello_client_gatt_callback( wiced_bt_gatt_evt_t event, wi
     return result;
 }
 
-/* This function is invoked on button interrupt events */
-void hello_client_interrupt_handler(void* user_data, uint8_t value )
+/* handle all the button press events here, not in the interrupt handler */
+int hello_client_button_handler(void* p_data)
 {
     wiced_result_t  result;
     int             num_peripherals = 0;
     static uint32_t button_pushed_time = 0;
     static uint32_t previous_timer_count = 0;
 
-    //WICED_BT_TRACE( "But1 %d, But2 %d, But3 %d \n", value & 0x01, ( value & 0x02 ) >> 1, ( value & 0x04 ) >> 2 );
-    WICED_BT_TRACE( "==>hello_client_interrupt_handler, app timer :%d, previou_timer_count :%d\n", g_hello_client.app_timer_count, previous_timer_count );
+    WICED_BT_TRACE( "==>hello_client_button_handler, app timer :%d, previous_timer_count :%d\n", g_hello_client.app_timer_count, previous_timer_count );
 
     if ((button_pushed_time == 0) && (previous_timer_count != g_hello_client.app_timer_count))
     {
@@ -247,7 +247,7 @@ void hello_client_interrupt_handler(void* user_data, uint8_t value )
                 if( wiced_bt_ble_get_current_scan_state() == BTM_BLE_SCAN_TYPE_NONE )
                 {
                     result = wiced_bt_ble_scan( BTM_BLE_SCAN_TYPE_HIGH_DUTY, WICED_TRUE, hello_client_scan_result_cback );
-                    WICED_BT_TRACE( "\nhello_client_interrupt_handler wiced_bt_ble_scan: %d\n", result );
+                    WICED_BT_TRACE( "\nhello_client_button_handler wiced_bt_ble_scan: %d\n", result );
                 }
             }
             else
@@ -277,6 +277,15 @@ void hello_client_interrupt_handler(void* user_data, uint8_t value )
             }
         }
     }
+
+    return 0;
+}
+
+/* This function is invoked on button interrupt events */
+void hello_client_interrupt_handler(void* user_data, uint8_t value )
+{
+    /* Serialize an event to process button press in the app context */
+    wiced_app_event_serialize(&hello_client_button_handler, &value);
 }
 
 /******************************************************************************
@@ -405,7 +414,7 @@ wiced_bt_gatt_status_t hello_client_gatt_req_cb( wiced_bt_gatt_attribute_request
 {
     wiced_bt_gatt_status_t result = WICED_BT_GATT_SUCCESS;
 
-    WICED_BT_TRACE( "==>hello_sensor_gatts_req_cb. conn %d, type %d\n", p_req->conn_id, p_req->opcode );
+    WICED_BT_TRACE( "==>hello_client_gatts_req_cb. conn %d, type %d\n", p_req->conn_id, p_req->opcode );
 
     switch (p_req->opcode)
     {
@@ -459,12 +468,13 @@ void hello_client_process_data_from_peripheral( uint16_t conn_id, int len, uint8
     WICED_BT_TRACE("==>hello_client_process_data_from_peripheral len:%d peripheral conn_id:%d ccc:%d\n",
             len, conn_id, g_hello_client.host_info.characteristic_client_configuration );
 
-    WICED_BT_TRACE("data = %s\n", data);
-
-    uint8_t *notif_data = hello_client_alloc_buffer(len);
+    uint8_t *notif_data = hello_client_alloc_buffer(len+1);
     if(notif_data)
     {
         WICED_MEMCPY(notif_data, data, len);
+        notif_data[len] = '\0';
+
+        WICED_BT_TRACE("data = %s\n", notif_data);
 
         // if central allows notifications, forward received data from the peripheral
         if ( ( g_hello_client.host_info.characteristic_client_configuration & GATT_CLIENT_CONFIG_NOTIFICATION ) != 0 )
